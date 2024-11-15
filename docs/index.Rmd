@@ -2,28 +2,166 @@
 title: "Assessment"
 output: html_document
 date: "2024-11-13"
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warnings=FALSE)
 ```
 
-## R Markdown
+## How has COVID-19 impacted Amoxicillin prescriptions in Scotland over the last five years, and does this vary across different areas?
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+First, I will load the needed library packages. I will also load the data and remove any NA's. I will be focusing on data from March as it is close to infection seasons.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+```{r, libraries}
+library(tidyverse)
+library(janitor) # cleaning data
+library(gt) # tables
+library(here) # directory structure
 ```
 
-## Including Plots
+```{r, loading}
+march2024 <- read_csv("https://www.opendata.nhs.scot/dataset/84393984-14e9-4b0d-a797-b288db64d088/resource/a42762ac-47cb-4fb6-b9b1-2478a588c0ed/download/pitc202403.csv") %>% 
+  clean_names()
 
-You can also embed plots, for example:
+march2023 <- read_csv("https://www.opendata.nhs.scot/dataset/84393984-14e9-4b0d-a797-b288db64d088/resource/8dd06c58-1a09-483a-8a01-5d68cfb8b38e/download/pitc202303.csv") %>% 
+  clean_names()
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+march2022 <- read_csv("https://www.opendata.nhs.scot/dataset/84393984-14e9-4b0d-a797-b288db64d088/resource/a0ec3bf2-7339-413b-9c66-2891cfd7919f/download/pitc202203.csv") %>% 
+  clean_names()
+
+march2021 <- read_csv("https://www.opendata.nhs.scot/dataset/84393984-14e9-4b0d-a797-b288db64d088/resource/df6fc708-5c50-4d57-a5c4-faa19a92c227/download/pitc202103.csv") %>% 
+  clean_names()
+
+march2020 <- read_csv("https://www.opendata.nhs.scot/dataset/84393984-14e9-4b0d-a797-b288db64d088/resource/9581bd8d-5568-4462-93a6-6d7bfbbe7cbc/download/pitc202003.csv") %>% 
+  clean_names()
+
+march2019 <- read_csv("https://www.opendata.nhs.scot/dataset/84393984-14e9-4b0d-a797-b288db64d088/resource/87b21840-beb8-40fd-bad8-579643bc8b8b/download/pitc201903.csv") %>% 
+  clean_names()
+
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+## Visualising the data
+
+I will be aiming to explore how the Amoxicillin prescriptions differ between 2019 and 2024. I will start by looking at the prescribed Amoxicillin in Scotland in from March 2019 (pre-covid) to March 2024
+
+```{r, Amoxicillin, echo=FALSE}
+
+march_datasets <- list(
+  march2019 = march2019,
+  march2020 = march2020,
+  march2021 = march2021,
+  march2022 = march2022,
+  march2023 = march2023,
+  march2024 = march2024
+)
+
+amoxicillin_data <- function(data) {
+  data %>%
+    filter(!is.na(bnf_item_description)) %>%
+    filter(str_detect(bnf_item_description, "AMOXICILLIN")) %>%
+    group_by(bnf_item_description) %>%
+    summarise(quantity_sum = sum(paid_quantity, na.rm = TRUE)) %>%
+    arrange(-quantity_sum) %>%
+    gt()
+}
+
+amoxicillin_tables <- map(march_datasets, amoxicillin_data)
+
+amox19 <- amoxicillin_tables$march2019
+amox20 <- amoxicillin_tables$march2020
+amox21 <- amoxicillin_tables$march2021
+amox22 <- amoxicillin_tables$march2022
+amox23 <- amoxicillin_tables$march2023
+amox24 <- amoxicillin_tables$march2024
+```
+
+## Amoxicillin prescriptions 2019
+```{r, Amoxicillin2019, echo=FALSE}
+amox19
+```
+
+## Amoxicillin prescriptions 2020
+```{r, Amoxicillin2020, echo=FALSE}
+amox20
+```
+
+## Amoxicillin prescriptions 2021
+```{r, Amoxicillin2021, echo=FALSE}
+amox21
+```
+
+2021, very sharp decrease in Amoxicillin prescriptions - could this be linked to the end of lockdown in Scotland and the use of masks?
+
+## Amoxicillin prescriptions 2022
+
+```{r, Amoxicillin202, echo=FALSE}
+amox22
+```
+
+## Amoxicillin prescriptions 2023
+```{r, Amoxicillin2023, echo=FALSE}
+amox23
+```
+
+## Amoxicillin prescriptions 2024
+```{r, Amoxicillin2024, echo=FALSE}
+amox24
+```
+
+The tables show how Amoxicillin prescriptions increase during lockdown but have a sharp decrease in 2021, when lockdown ended. By looking at the hospital admissions, it could suggest how COVID-19 cases are linked.
+
+I will be looking at hospital admissions from COVID-19
+```{r, covid, echo=FALSE}
+
+covid_hospitaladmissions <- read_csv("https://www.opendata.nhs.scot/dataset/578ff074-93f6-4127-a872-0ab97f9d5587/resource/f8f3a435-1925-4c5a-b2e8-e58fdacf04bb/download/hospital_admissions_hb_agesex_20231005.csv") %>% 
+  clean_names()
+
+march_dates <- paste0(2020:2024, "03")
+
+admissions_march_data <- purrr::map(march_dates, function(march_date) {
+  covid_hospitaladmissions %>% 
+  filter(!is.na(hb)) %>% 
+  filter(age_group == "All ages", sex == "All", admission_type == "All") %>% 
+  filter(str_detect(week_ending, march_date)) %>% 
+  select(week_ending, hb, age_group, sex, number_admissions, percent_variation, admission_type) %>%
+  group_by(hb) %>% 
+  summarise(total_admissions = sum(number_admissions, na.rm = TRUE)) %>% 
+  arrange(-total_admissions) %>% 
+  gt()
+})
+
+names(admissions_march_data) <- paste0("admissions", 2020:2024)
+
+admissions2020 <- admissions_march_data$admissions2020
+admissions2021 <- admissions_march_data$admissions2021
+admissions2022 <- admissions_march_data$admissions2022
+admissions2023 <- admissions_march_data$admissions2023
+
+# there is no data for 2019 or 2024.
+
+```
+
+## Covid2020
+```{r, Covid2020, echo=FALSE}
+admissions2020
+```
+
+## Covid2021
+```{r, Covid2021, echo=FALSE}
+admissions2021
+```
+
+## Covid2022
+```{r, Covid2022, echo=FALSE}
+admissions2022
+```
+## Covid2023
+```{r, Covid2023, echo=FALSE}
+admissions2023
+```
+
+In the report I will aim to explore if mask use due to COVID-19 decreased the need for antibiotic prescriptions. And if the increase in antibiotics prescriptions (higher than before COVID-19) could be due to a weakened immune system from COVID-19 leading to a higher susceptibility of having bacterial infections. I will also be exploring if there is a link between the number of cases (e.g. Hospital admissions data from COVID-19) is related to higher or lower antibiotic use in that area post-COVID-19.
+
+My next step will be creating a Bar plot showing both COVID-19 admissions and Amoxicillin prescriptions. I will be focusing as well on the different healthboards - if there is a link between COVID-19 awareness and restrictions with Amoxicillin prescriptions (taking into account the population number). 
