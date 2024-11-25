@@ -1,8 +1,15 @@
 ---
 title: "Assessment"
-output: html_document
-date: "2024-11-13"
-editor_options: 
+author: "Tania Capdevila Solé"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    theme: united
+    highlight: tango
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+editor_options:
   chunk_output_type: console
 ---
 
@@ -10,158 +17,284 @@ editor_options:
 knitr::opts_chunk$set(echo = TRUE, message=FALSE, warnings=FALSE)
 ```
 
-## How has COVID-19 impacted Amoxicillin prescriptions in Scotland over the last five years, and does this vary across different areas?
+# How has COVID-19 impacted Amoxicillin prescriptions compared to other Antibiotics in Scotland?
 
-First, I will load the needed library packages. I will also load the data and remove any NA's. I will be focusing on data from March as it is close to infection seasons.
+## Introduction
+
+Previous studies have highlighted the impact of COVID-19 restrictions on the prescriptions of first-line antibiotics in English primary care (Hussain et al., 2021). Antibiotic prescriptions for meningitis and respiratory tract infections experienced the most significant decrease in 2020 compared to 2018/2019, decreasing by 62.3% and 39.13% respectively.
+
+Amoxicillin is one of the most commonly prescribed antibiotics, normally prescribed to treat bacterial infections (e.g. chest infections such as pneumonia) and dental abscesses (National Health Service, 2019). In the same study by Hussain et al. (2021), it was found that amoxicillin prescriptions decreased by 43.5% in 2020 compared to 2019.
+
+Therefore, we will be working with data about prescriptions in the community in Scotland, in specific, prescriptions of the antibiotics Amoxicillin, Trimethoprim and Metronidazole. Trimethoprim is an antibiotic normally prescribed for UTI’s (National Health Service, 2019) and Metronidazole for infections of the reproductive system, gastrointestinal (GI) tract and other areas of the body (MedlinePlus, 2019).
+
+## Library Packages
 
 ```{r, libraries}
-library(tidyverse)
-library(janitor) # cleaning data
-library(gt) # tables
-library(here) # directory structure
+library(tidyverse) # purrr (map() function), ggplot2 (plots), dplyr and more.
+library(janitor) # For cleaning data.
+library(gt) # For tables.
+library(here) # Directory structure.
+library(data.table) # Reading multiple CSV files.
+library(glue) # table subtitle
+library(scales) #internal scaling infrastructure used by ggplot2
 ```
 
-```{r, loading}
-march2024 <- read_csv("https://www.opendata.nhs.scot/dataset/84393984-14e9-4b0d-a797-b288db64d088/resource/a42762ac-47cb-4fb6-b9b1-2478a588c0ed/download/pitc202403.csv") %>% 
-  clean_names()
+## Antibiotic Prescriptions
 
-march2023 <- read_csv("https://www.opendata.nhs.scot/dataset/84393984-14e9-4b0d-a797-b288db64d088/resource/8dd06c58-1a09-483a-8a01-5d68cfb8b38e/download/pitc202303.csv") %>% 
-  clean_names()
+The data we loaded shows all the medicines that have been dispensed to people by pharmacies in the community of Scotland. There is a separate data set for each month, from October 2015. We focused on data from the month of March for each year from 2019 to 2024. We chose March as it is within the peak period for respiratory infections.
 
-march2022 <- read_csv("https://www.opendata.nhs.scot/dataset/84393984-14e9-4b0d-a797-b288db64d088/resource/a0ec3bf2-7339-413b-9c66-2891cfd7919f/download/pitc202203.csv") %>% 
-  clean_names()
+The data and the data dictionary can be found here:
 
-march2021 <- read_csv("https://www.opendata.nhs.scot/dataset/84393984-14e9-4b0d-a797-b288db64d088/resource/df6fc708-5c50-4d57-a5c4-faa19a92c227/download/pitc202103.csv") %>% 
-  clean_names()
+<https://www.opendata.nhs.scot/dataset/prescriptions-in-the-community>
 
-march2020 <- read_csv("https://www.opendata.nhs.scot/dataset/84393984-14e9-4b0d-a797-b288db64d088/resource/9581bd8d-5568-4462-93a6-6d7bfbbe7cbc/download/pitc202003.csv") %>% 
-  clean_names()
+```{r, Data_loading}
+marchprescriptions <- # Create an object to store all the data from the CSV files.
+  list.files(path = here("marchamoxdata"), 
+             pattern = "*.csv", # Direct to folder with CSV files.
+             full.names = TRUE) %>% # Full file path to read them later.
+  map_df(~fread(.)) %>% # Read and combine each CSV into one data frame.
+  clean_names() # Clean the column names to ensure consistency.
+```
 
-march2019 <- read_csv("https://www.opendata.nhs.scot/dataset/84393984-14e9-4b0d-a797-b288db64d088/resource/87b21840-beb8-40fd-bad8-579643bc8b8b/download/pitc201903.csv") %>% 
-  clean_names()
+### Filtering The Data
+
+```{r, antibiotics_data}
+
+combined_antibiotics <- # Create a new object to store the  data.
+  
+  c("AMOXICILLIN", "TRIMETHOPRIM", "METRONIDAZOLE") %>% # Create a vector with the antibiotics we are interested in.
+  
+  map_dfr(~ marchprescriptions %>% # Map function to avoid repetition
+            
+  filter(str_detect(bnf_item_description, .x)) %>% # Filter to only detect and include specific antibiotics.
+            
+  mutate(year = substr(paid_date_month, 1, 4)) %>% # Remove the month number '03' as all the data is already from only the month of March.
+            
+  group_by(year) %>% # Group the different types of Antibiotic items  (tablets, capsules, oral suspensions, etc...) together by year.
+            
+  summarise(total = sum(paid_quantity, na.rm = TRUE), 
+                      variable = .x, .groups = "drop"))
+  # Summarise the data to show the total amount of antibiotic sold in the month of March that year.
+```
+
+### Visualising The Data
+
+We joined the data of the three antibiotics to create a table to visualise the data together.
+
+```{r, antibiotics_table}
+
+wide_combined_antibiotics <- combined_antibiotics %>%
+  pivot_wider(names_from = variable, values_from = total) # Convert to wider form for easier table formatting.
+
+antibiotics_table <- wide_combined_antibiotics %>%
+
+  gt() %>% # Create a table.
+  
+  cols_label(
+    year = "Year", 
+    AMOXICILLIN = "Amoxicillin",
+    TRIMETHOPRIM = "Trimethoprim",
+    METRONIDAZOLE = "Metronidazole") %>% 
+  # Rename the column labels.
+  
+  cols_align(align = "center") %>% # Center the columns to make it nicer.
+  
+  tab_header(
+    title = "Antibiotic Prescriptions in Scotland",
+    subtitle = "During The Month of March") %>% # Add a title and subtitle.
+  
+  fmt_number(columns = c(AMOXICILLIN, 
+                         TRIMETHOPRIM, 
+                         METRONIDAZOLE),
+             decimals = 0, sep_mark = ",") %>% 
+  # Add commas to separate the thousands and specify there are no decimals.
+  
+  cols_width(ends_with(c("im","le","in")) ~ px(150)) %>% # Set the antibiotic column widths to the same number.
+  
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_title(groups = "title")) %>% # Make the title bold.
+  
+  tab_style(
+    style = cell_borders(sides = "all", color = "black", 
+                         style = "solid", weight = px(1)),
+    locations = list(cells_body(), cells_column_labels())) %>% 
+  # To Create a black border separating the cells.
+  
+  tab_style(
+    style = cell_fill(color = "lightblue"),
+    locations = cells_column_labels()) %>% # Add colour to the column labels.
+  
+  opt_table_outline(style = "solid", 
+                    width = px(3), 
+                    color = "black") %>% 
+  # Add a black outline around the table.
+  
+  opt_row_striping() %>% # Add alternating row colours.
+ 
+  tab_style_body(style = cell_fill("pink"), values = c(1824329)) %>%  
+  # Highlight the cell with the most significant reduction.
+ 
+   tab_caption(caption = md("**Table 1:** Number of Amoxicillin, Trimethoprim and Metronidazole item prescriptions during the month of March from 2019 to 2024."))
+
+antibiotics_table # Print the Table
+```
+
+The table reveals a significant reduction in Amoxicillin prescriptions from March 2020 to March 2021 (highlighted in pink) compared to Trimethoprim and Metronidazole. Amoxicillin prescriptions drop by half between March 2020 and March 2021, followed by a near doubling in March 2022. In contrast, Metronidazole shows an opposite trend, with an increase in 2021 and a decrease in 2022. Trimethoprim, similar to Amoxicillin but on a smaller scale, exhibits a decline in 2021 and a rebound in 2022.
+
+Furthermore, both Trimethoprim and Metronidazole prescriptions exhibit an overall trend of decreasing or remaining stable, likely influenced by Scotland's initiative to reduce antimicrobial use. Interestingly, Amoxicillin demonstrates a contrasting pattern, with an increase in prescriptions during 2020, the year COVID-19 emerged, and again in 2022 after restrictions were lifted. This spike in Amoxicillin prescriptions during the onset of the pandemic may be attributed to uncertainty among doctors regarding the nature of COVID-19, as its symptoms initially resembled those of respiratory bacterial infections (Andrews et al., 2021).
+
+## COVID-19 Positive Cases
+
+To see how COVID-19 played an impact on these prescriptions, we looked at the total positive COVID-19 cases in Scotland, the data can be found here:
+
+<https://www.opendata.nhs.scot/dataset/viral-respiratory-diseases-including-influenza-and-covid-19-data-in-scotland/resource/2803acc8-8ec3-4c4a-81a5-f10952bf66f4>
+
+```{r, Covid-19}
+
+weekly_cases <- read_csv("https://www.opendata.nhs.scot/dataset/49dc2d88-1cb0-4420-a5ea-d1bbada62fb2/resource/2803acc8-8ec3-4c4a-81a5-f10952bf66f4/download/weekly_tests_cases_hb_20241120.csv") %>% 
+  clean_names() # Read the file and clean the names.
 
 ```
 
-## Visualising the data
+### Filtering The Data
 
-I will be aiming to explore how the Amoxicillin prescriptions differ between 2019 and 2024. I will start by looking at the prescribed Amoxicillin in Scotland in from March 2019 (pre-covid) to March 2024
+We filtered the data to only include the cases from March and the total from Scotland.
 
-```{r, Amoxicillin, echo=FALSE}
+```{r, covid_cases}
 
-march_datasets <- list(
-  march2019 = march2019,
-  march2020 = march2020,
-  march2021 = march2021,
-  march2022 = march2022,
-  march2023 = march2023,
-  march2024 = march2024
-)
-
-amoxicillin_data <- function(data) {
-  data %>%
-    filter(!is.na(bnf_item_description)) %>%
-    filter(str_detect(bnf_item_description, "AMOXICILLIN")) %>%
-    group_by(bnf_item_description) %>%
-    summarise(quantity_sum = sum(paid_quantity, na.rm = TRUE)) %>%
-    arrange(-quantity_sum) %>%
-    gt()
-}
-
-amoxicillin_tables <- map(march_datasets, amoxicillin_data)
-
-amox19 <- amoxicillin_tables$march2019
-amox20 <- amoxicillin_tables$march2020
-amox21 <- amoxicillin_tables$march2021
-amox22 <- amoxicillin_tables$march2022
-amox23 <- amoxicillin_tables$march2023
-amox24 <- amoxicillin_tables$march2024
+covid_cases <- weekly_cases %>% # Create a new object to store the data.
+  
+  mutate(year = substr(week_ending, 1, 6)) %>% # To extract only the year and the month. 
+  
+  filter(str_ends(year, "03")) %>% # To extract only the month of March.
+  
+  filter(hb == "S92000003") %>% # Filter to only include the total cases for all of Scotland (Health Board code S92000003).
+  
+  mutate(year = substr(year, 1, 4)) %>% # Remove the month as we have already filtered the data to only include data from March.
+  
+  group_by(year) %>% # Group the cases by year.
+  
+  summarise(covid_cases = sum(weekly_total_positive_tests, na.rm = TRUE)) %>%
+  # Summarise the data to show the total positive COVID-19 cases in the month of March that year.
+  
+  arrange(year) # Arrange the data by year.
 ```
 
-## Amoxicillin prescriptions 2019
-```{r, Amoxicillin2019, echo=FALSE}
-amox19
+### Plotting The Data
+
+We then plotted the COVID-19 data against the antibiotic prescriptions data.
+
+```{r, joined_data}
+
+joined_data <- # Create a new object to store your joined data.
+  list(wide_combined_antibiotics, covid_cases) %>% # Create a list of the data frames you want to join.
+  
+  reduce(full_join, by = 'year') %>% # Join the data by the 'year' column (the common variable) and use 'full_join' to include all the different columns.
+  
+  mutate(year = as.numeric(year)) %>% # Make sure the 'year' column is numeric.
+  
+  mutate(across(everything(), ~replace_na(., 0))) # There is no COVID-19 positive cases data from 2019, replace these NA's with 0.
+
+joined_data_df <- joined_data %>%
+  gather(key = "variable", value = "value", -year) # Reshape the data to a long format to make it easier to plot.
+
+line_plot_covid_ab <- joined_data_df %>% 
+  
+  ggplot(aes(x = year, y = value)) + # Use the ggplot function to plot the variables against time. 
+  
+  geom_line(aes(color = variable)) + # Add different coloured lines for each variable.
+  
+  scale_color_manual( # Create a table legend.
+    values = c("orange", "red", "green", "blue"), # Specify variable colours.
+    labels = c("Amoxicillin",
+               "Covid-19 Positive Cases",
+               "Metronidazole",
+               "Trimethoprim"), # Specify the label for each variable.
+    name = NULL) + # Remove the legend title.
+  
+  labs(title = "Antibiotic Prescriptions and COVID-19 Positive Cases in March in Scotland", # Add a title to the plot.
+    x = "Year", # Add an x-axis label to the plot.
+    caption = "Figure 1") + 
+  
+  scale_y_continuous( 
+    name = "Number of Antibiotic Prescriptions", # Add a y-axis label.
+    sec.axis = sec_axis(~ ., name = "Number of COVID-19 Positive Cases")) + 
+  # Add a secondary axis for the COVID-19 data.
+ 
+  theme_minimal() + # Apply a simple theme.
+ 
+  theme(legend.position = "top", plot.caption = element_text(hjust = 0.5, face = "italic")) # Place the legend at the top and the caption in the middle and make it italic.
+
+line_plot_covid_ab # Print the plot
 ```
 
-## Amoxicillin prescriptions 2020
-```{r, Amoxicillin2020, echo=FALSE}
-amox20
+We also created a seperate plot for Amoxicillin and COVID-19 cases for a closer analysis.
+
+```{r, amoxicillin_barplot}
+
+amoxicillin_barplot <- joined_data %>%
+  ggplot(aes(x = year)) +  # Set the 'year' as the x-axis
+  
+  geom_bar(aes(y = AMOXICILLIN, 
+               fill = "Amoxicillin Prescriptions"), # Select only Amoxicillin
+           stat = "identity", colour = "black") +  # Add a fill
+ 
+   geom_line(aes(y = covid_cases * 5, # Set a scale
+                   color = "COVID-19 Positive Cases"), # Add a colour label.
+               linewidth = 1) +  # Remove the shadow.
+  
+  labs( # Set axis labels and titles
+    title = "Amoxicillin Prescriptions and COVID-19 Cases in March in Scotland",
+    x = "Year", 
+    y = "Amoxicillin (number of items prescribed)",
+    caption = "Figure 2") +
+  
+  scale_y_continuous(sec.axis = sec_axis(~./5, name = "COVID-19 Positive Cases")) + # Create a secondary axis
+  
+  scale_x_continuous(breaks = seq(min(joined_data$year), 
+                                  max(joined_data$year), by = 1)) + 
+  # Ensure all years are shown
+  
+  scale_fill_manual(values = c("Amoxicillin Prescriptions" = "pink"), name = NULL) +  # Set color for bars and create legend
+ 
+  scale_color_manual(values = c("COVID-19 Positive Cases" = "red"), 
+                     name = NULL) +  # Set color for line and create legend
+  theme_minimal() +
+  
+  theme(legend.position = "top", plot.caption = element_text(hjust = 0.5, face = "italic"))
+
+amoxicillin_barplot
 ```
 
-## Amoxicillin prescriptions 2021
-```{r, Amoxicillin2021, echo=FALSE}
-amox21
-```
+Figure 1 shows that prescriptions for Trimethoprim and Metronidazole remained relatively stable from March 2019 to March 2024. However, Amoxicillin prescriptions experienced a significant decline from 2020 to 2021, as shown in Figure 2. This decline could potentially be related to the restrictions imposed by COVID-19, such as national lockdowns, social distancing, and mask mandates. These measures may have limited the transmission of viral diseases like COVID-19, as well as bacterial respiratory infections, possibly contributing to the reduction in Amoxicillin prescriptions. Another possible explanation could be the impact of the COVID-19 pandemic on healthcare infrastructure.
 
-2021, very sharp decrease in Amoxicillin prescriptions - could this be linked to the end of lockdown in Scotland and the use of masks?
+From 2021 to 2022, Amoxicillin prescriptions began to rise again. This increase could be linked to the easing of restrictions, a reduction in public fear, and the resurgence of respiratory bacterial infections. This can also be seen with the rise in COVID-19 cases in 2022. Therefore, as previously mentioned, some of these prescriptions could also be attributed to the misdiagnosis of COVID-19 cases as bacterial infections. The recovery of healthcare infrastructure and a return to more normalized social behaviors, such as doctor visits and socializing, may have also contributed to this increase in Amoxicillin prescriptions.
 
-## Amoxicillin prescriptions 2022
+## Dataset Limitations and Next steps
 
-```{r, Amoxicillin202, echo=FALSE}
-amox22
-```
+COVID-19 test data may not be entirely reliable, as there were periods during the pandemic when individuals who were likely positive did not seek testing, while other periods required testing for travel. Additionally, at the start of the pandemic, tests were less readily available whereas by 2022, healthcare systems were better prepared, and testing equipment became more accessible.
 
-## Amoxicillin prescriptions 2023
-```{r, Amoxicillin2023, echo=FALSE}
-amox23
-```
+Furthermore, national lockdowns and restrictions not only reduced the transmission of respiratory infections, thereby lowering Amoxicillin prescriptions, but also decreased the number of in-person consultations. As a result, patients who would have previously received antibiotics for infections may not have sought medical care, contributing to the decline in Amoxicillin prescriptions from 2020 to 2021. This potential factor requires further investigation.
 
-## Amoxicillin prescriptions 2024
-```{r, Amoxicillin2024, echo=FALSE}
-amox24
-```
+For the purposes of this report, data from March was used for analysis; however, a more comprehensive analysis should include data from the entire year.
 
-The tables show how Amoxicillin prescriptions increase during lockdown but have a sharp decrease in 2021, when lockdown ended. By looking at the hospital admissions, it could suggest how COVID-19 cases are linked.
+## Conclusion
 
-I will be looking at hospital admissions from COVID-19
-```{r, covid, echo=FALSE}
+In conclusion, it is evident that COVID-19 has influenced the prescription of Amoxicillin in Scotland. Comparing prescription data for Amoxicillin, Trimethoprim, and Metronidazole reveals that Amoxicillin experienced the most significant change. The decline in Amoxicillin prescriptions from March 2020 to 2021 can potentially be attributed to a combination of factors, including COVID-19 restrictions (such as face masks, national lockdowns, and social distancing), public fear of the virus. The reduced transmission of respiratory bacterial infections during this period and the strain on healthcare infrastructure, which limited access to healthcare, likely contributed to the lower number of prescriptions. Moreover, as restrictions eased and routine healthcare services returned, Amoxicillin prescriptions have gradually been increasing since 2022. Further research is needed to explore these factors in more detail, also providing an opportunity to rationalize antibiotic use in Scotland.
 
-covid_hospitaladmissions <- read_csv("https://www.opendata.nhs.scot/dataset/578ff074-93f6-4127-a872-0ab97f9d5587/resource/f8f3a435-1925-4c5a-b2e8-e58fdacf04bb/download/hospital_admissions_hb_agesex_20231005.csv") %>% 
-  clean_names()
+## Generative Artifical Intelligence
 
-march_dates <- paste0(2020:2024, "03")
+This report utilized artificial intelligence tools, such as ChatGPT, for assistance with troubleshooting error codes.
 
-admissions_march_data <- purrr::map(march_dates, function(march_date) {
-  covid_hospitaladmissions %>% 
-  filter(!is.na(hb)) %>% 
-  filter(age_group == "All ages", sex == "All", admission_type == "All") %>% 
-  filter(str_detect(week_ending, march_date)) %>% 
-  select(week_ending, hb, age_group, sex, number_admissions, percent_variation, admission_type) %>%
-  group_by(hb) %>% 
-  summarise(total_admissions = sum(number_admissions, na.rm = TRUE)) %>% 
-  arrange(-total_admissions) %>% 
-  gt()
-})
+# References
 
-names(admissions_march_data) <- paste0("admissions", 2020:2024)
+Andrews, A., Budd, E., Hendrick, A., Ashiru-Oredope, D., Beech, E., Hopkins, S., Gerver, S., & Muller-Pebody, B. (2021). ‘Surveillance of Antibacterial Usage during the COVID-19 Pandemic in England, 2020.’, Antibiotics, 10(7), pp. 841. Doi: https://doi.org/10.3390/antibiotics10070841 
 
-admissions2020 <- admissions_march_data$admissions2020
-admissions2021 <- admissions_march_data$admissions2021
-admissions2022 <- admissions_march_data$admissions2022
-admissions2023 <- admissions_march_data$admissions2023
+Hussain, A. Z., Paudyal, V., & Hadi, M. A. (2021). ‘Impact of the COVID-19 Pandemic on the Prescribing Patterns of First-Line Antibiotics in English Primary Care: A Longitudinal Analysis of National Prescribing Dataset.’, Antibiotics, 10(5), pp. 591. Doi: https://doi.org/10.3390/antibiotics10050591 
 
-# there is no data for 2019 or 2024.
+MedlinePlus. (2019). ‘Metronidazole: MedlinePlus Drug Information.’, Medlineplus.gov. Available at: https://medlineplus.gov/druginfo/meds/a689011.html 
 
-```
+National Health Service. (2019). ‘Amoxicillin.’, NHS. Available at: https://www.nhs.uk/medicines/amoxicillin/ 
 
-## Covid2020
-```{r, Covid2020, echo=FALSE}
-admissions2020
-```
-
-## Covid2021
-```{r, Covid2021, echo=FALSE}
-admissions2021
-```
-
-## Covid2022
-```{r, Covid2022, echo=FALSE}
-admissions2022
-```
-## Covid2023
-```{r, Covid2023, echo=FALSE}
-admissions2023
-```
-
-In the report I will aim to explore if mask use due to COVID-19 decreased the need for antibiotic prescriptions. And if the increase in antibiotics prescriptions (higher than before COVID-19) could be due to a weakened immune system from COVID-19 leading to a higher susceptibility of having bacterial infections. I will also be exploring if there is a link between the number of cases (e.g. Hospital admissions data from COVID-19) is related to higher or lower antibiotic use in that area post-COVID-19.
-
-My next step will be creating a Bar plot showing both COVID-19 admissions and Amoxicillin prescriptions. I will be focusing as well on the different healthboards - if there is a link between COVID-19 awareness and restrictions with Amoxicillin prescriptions (taking into account the population number). 
+National Health Service. (2019). ‘Trimethoprim.’ NHS. Available at: https://www.nhs.uk/medicines/trimethoprim/
